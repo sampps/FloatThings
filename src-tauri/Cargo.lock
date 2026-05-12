@@ -780,7 +780,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "floatshi"
+name = "floatthings"
 version = "0.1.0"
 dependencies = [
  "serde",
