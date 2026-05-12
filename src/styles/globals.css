@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #0a0a0f;
+  --color-glass: rgba(18, 18, 30, 0.85);
+  --font-sans: "SF Pro Display", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Prevent text selection */
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Custom property animations via GSAP */
+@property --hue-rotate {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}

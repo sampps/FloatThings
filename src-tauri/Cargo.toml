@@ -1,0 +1,20 @@
+[package]
+name = "floatthings"
+version = "0.1.0"
+description = "FloatThings - 一个轻量灵动的待办事项"
+authors = ["zhaoming"]
+edition = "2021"
+
+[lib]
+name = "floatthings_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
