@@ -8,7 +8,8 @@
 
 ### 悬浮胶囊
 应用启动后默认以小胶囊形态悬浮在桌面上，点击展开为完整面板，双击空白区域折叠为胶囊。胶囊是一个精致的玻璃球体设计，带有呼吸辉光、镜面高光和棱镜边缘，展示当前待办数量。支持拖拽移动，切换到任意桌面角落。
-<img width="104" height="98" alt="image" src="https://github.com/user-attachments/assets/5d87ef38-7e4c-418c-996d-1fcbfef00358" />
+
+<img width="80" height="76" alt="image" src="https://github.com/user-attachments/assets/5d87ef38-7e4c-418c-996d-1fcbfef00358" />
 
 
 ### 玻璃拟态面板
