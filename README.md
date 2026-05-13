@@ -1,6 +1,7 @@
 # 浮事 FloatThings
 
 轻量灵动的 Windows 桌面待办事项应用，浮于所有窗口之上，随时记录与追踪。
+<img width="496" height="746" alt="image" src="https://github.com/user-attachments/assets/0a55194a-393c-4aeb-9a89-f2fa8e15379e" />
 
 ## 特性
 
