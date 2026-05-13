@@ -81,6 +81,11 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![toggle_visible, start_dragging, resize_window, get_cursor_pos])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                window.app_handle().exit(0);
+            }
+        })
         .setup(|app| {
             let icon_bytes = include_bytes!("../icons/32x32.png");
             let decoder = png::Decoder::new(std::io::Cursor::new(icon_bytes));

@@ -1,5 +1,5 @@
-// Debug build: console stays open to see errors
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 fn main() {
-    eprintln!("[FloatThings] main starting...");
     floatthings_lib::run()
 }

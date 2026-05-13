@@ -69,7 +69,7 @@ const dark: ThemeColors = {
   specularSweep: "linear-gradient(140deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 25%, transparent 50%)",
   specularEdge: "linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.05) 15%, transparent 30%)",
   rimLight: "linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.02) 30%, transparent 60%)",
-  panelShadow: `6px 7px 28px rgba(0,0,0,0.25), 3px 4px 11px rgba(0,0,0,0.14)`,
+  panelShadow: `none`,
   bottomGrabber: "rgba(255,255,255,0.2)",
   accentGlow: "0 0 8px rgba(34,211,238,0.12)",
 };
@@ -107,7 +107,7 @@ const light: ThemeColors = {
   specularSweep: "linear-gradient(140deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.2) 25%, transparent 50%)",
   specularEdge: "linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.2) 15%, transparent 30%)",
   rimLight: "linear-gradient(180deg, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.15) 30%, transparent 60%)",
-  panelShadow: `4px 6px 20px rgba(0,0,0,0.08), 2px 3px 8px rgba(0,0,0,0.04)`,
+  panelShadow: `none`,
   bottomGrabber: "rgba(0,0,0,0.15)",
   accentGlow: "0 0 8px rgba(56,189,248,0.15)",
 };

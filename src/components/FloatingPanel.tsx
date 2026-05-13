@@ -94,6 +94,33 @@ export default function FloatingPanel() {
     return () => document.removeEventListener("dblclick", onDblClick);
   }, []);
 
+  // Header drag: only start dragging when mouse moves > 2px
+  const handleHeaderMouseDown = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button, input")) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let dragging = false;
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging && (Math.abs(ev.clientX - startX) > 2 || Math.abs(ev.clientY - startY) > 2)) {
+        dragging = true;
+        invoke("start_dragging");
+        cleanup();
+      }
+    };
+
+    const onUp = () => cleanup();
+
+    const cleanup = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") handleAdd();
     if (e.key === "Escape") {
@@ -200,7 +227,7 @@ export default function FloatingPanel() {
       <div
         ref={headerRef}
         className="relative flex items-center justify-between px-4 pt-4 pb-1"
-        onMouseDown={() => invoke("start_dragging")}
+        onMouseDown={handleHeaderMouseDown}
       >
         <div className="flex items-center gap-2">
           <button
