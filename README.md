@@ -1,6 +1,7 @@
 # 浮事 FloatThings
 
 轻量灵动的 Windows 桌面待办事项应用，浮于所有窗口之上，随时记录与追踪。
+
 <img width="347" height="522" alt="image" src="https://github.com/user-attachments/assets/0a55194a-393c-4aeb-9a89-f2fa8e15379e" />
 
 ## 特性
@@ -21,15 +22,18 @@
 
 ### 滑动手势
 在待办卡片上右滑标记完成，左滑删除。滑动带有弹性动画反馈，手感流畅自然。
+
 <img width="347" height="522" alt="image" src="https://github.com/user-attachments/assets/095d5068-14b7-4188-bc51-9527883e2f59" />
 <img width="347" height="522" alt="image" src="https://github.com/user-attachments/assets/a4656ce8-d36f-4859-9c0f-4f6a8d3e592e" />
 
 ### 废纸篓
 删除的待办不会直接消失，而是进入废纸篓暂存。在废纸篓中可以恢复误删的待办，或彻底删除。废纸篓区域有独立的琥珀色视觉标识。
+
 <img width="347" height="522" alt="image" src="https://github.com/user-attachments/assets/f2dc182e-8cae-4253-8d73-ad075d5e91a9" />
 
 ### 已完成归档
 已完成的待办按日期分组展示，便于回顾每天完成的事项。完成状态下的卡片继承原紧急度颜色，保持视觉连贯。
+
 <img width="347" height="522" alt="image" src="https://github.com/user-attachments/assets/c8c7f2e1-9f28-4043-8401-95db9b561ab8" />
 
 ### 系统托盘
