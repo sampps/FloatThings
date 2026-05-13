@@ -2,43 +2,21 @@ import { useRef } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { useTodoStore } from "../store/useTodoStore";
+import { invoke } from "@tauri-apps/api/core";
 
 export default function Bubble() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const glowRef = useRef<HTMLDivElement>(null);
-  const textRef = useRef<HTMLSpanElement>(null);
   const setView = useTodoStore((s) => s.setView);
+  const activeCount = useTodoStore((s) => s.todos.filter((t) => t.status === "active").length);
 
   useGSAP(
     () => {
-      // Continuous iridescent shimmer
-      const shimmerTl = gsap.timeline({ repeat: -1, yoyo: true });
-      shimmerTl.to(glowRef.current, {
-        "--shimmer-pos": "100%",
-        duration: 3,
-        ease: "sine.inOut",
-      });
-      shimmerTl.to(glowRef.current, {
-        "--shimmer-pos": "0%",
-        duration: 3,
-        ease: "sine.inOut",
-      });
-
-      // Breathing pulse
       gsap.to(containerRef.current, {
-        scale: 1.03,
-        duration: 2.5,
+        scale: 1.008,
+        duration: 4,
         ease: "sine.inOut",
         repeat: -1,
         yoyo: true,
-      });
-
-      // Subtle hue rotation
-      gsap.to(containerRef.current, {
-        "--hue": "360",
-        duration: 6,
-        ease: "none",
-        repeat: -1,
       });
     },
     { scope: containerRef }
@@ -46,82 +24,114 @@ export default function Bubble() {
 
   const handleClick = () => {
     const tl = gsap.timeline();
-
-    // Quick bounce before expand
     tl.to(containerRef.current, {
-      scale: 0.9,
-      duration: 0.1,
+      scale: 0.95,
+      duration: 0.06,
       ease: "power2.in",
-    })
-      .to(containerRef.current, {
-        scale: 1.15,
-        duration: 0.45,
-        ease: "elastic.out(1, 0.4)",
-        onComplete: () => setView("panel"),
-      });
+    }).to(containerRef.current, {
+      scale: 1,
+      duration: 0.25,
+      ease: "power2.out",
+      onComplete: () => setView("panel"),
+    });
   };
 
   return (
     <div
       ref={containerRef}
       onClick={handleClick}
+      onDoubleClick={handleClick}
       className="relative flex items-center justify-center cursor-pointer select-none"
-      style={{
-        width: 92,
-        height: 36,
-        filter: "drop-shadow(0 0 18px rgba(168,85,247,0.45)) drop-shadow(0 0 6px rgba(99,102,241,0.3))",
-        "--hue": "0deg",
-      } as React.CSSProperties}
+      style={{ width: 92, height: 36, pointerEvents: "auto" } as React.CSSProperties}
+      onMouseDown={() => invoke("start_dragging")}
     >
-      {/* Glass background */}
-      <div className="absolute inset-0 rounded-full bg-white/5 backdrop-blur-xl border border-white/10" />
-
-      {/* Shimmer sweep */}
+      {/* Opaque dark base — matching panel */}
       <div
-        ref={glowRef}
-        className="absolute inset-0 rounded-full opacity-70"
+        className="absolute inset-0 rounded-full"
         style={{
-          background:
-            "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.15) 47%, rgba(255,255,255,0.25) 50%, rgba(168,85,247,0.4) 53%, transparent 70%)",
-          backgroundSize: "200% 100%",
-          backgroundPositionX: "var(--shimmer-pos, 0%)",
-          "--shimmer-pos": "0%",
-        } as React.CSSProperties}
-      />
-
-      {/* Rainbow edge glow */}
-      <div
-        className="absolute inset-[-2px] rounded-full -z-10 opacity-60"
-        style={{
-          background: `conic-gradient(
-            from var(--hue, 0deg),
-            #a855f7, #6366f1, #3b82f6, #06b6d4,
-            #10b981, #a855f7, #6366f1
-          )`,
-          filter: "blur(8px)",
-        } as React.CSSProperties}
-      />
-
-      {/* Inner glow overlay */}
-      <div
-        className="absolute inset-[1px] rounded-full opacity-30"
-        style={{
-          background: `radial-gradient(ellipse at center, rgba(168,85,247,0.5) 0%, transparent 70%)`,
+          background: "linear-gradient(170deg, #1a1f2e 0%, #151d2b 35%, #182230 70%, #131b28 100%)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          boxShadow: `
+            4px 6px 18px rgba(0,0,0,0.25),
+            2px 3px 6px rgba(0,0,0,0.12)
+          `,
         }}
       />
 
-      {/* Text */}
-      <span
-        ref={textRef}
-        className="relative z-10 text-xs font-medium tracking-wider"
+      {/* Caustic: warm amber */}
+      <div className="absolute inset-0 rounded-full pointer-events-none overflow-hidden">
+        <div style={{
+          width: 55, height: 35,
+          position: "absolute", top: "-30%", left: "5%",
+          background: "radial-gradient(ellipse 60% 55%, rgba(251,191,36,0.12) 0%, transparent 65%)",
+          filter: "blur(10px)",
+        }} />
+      </div>
+
+      {/* Caustic: cyan accent */}
+      <div className="absolute inset-0 rounded-full pointer-events-none overflow-hidden">
+        <div style={{
+          width: 45, height: 30,
+          position: "absolute", bottom: "-20%", right: "0%",
+          background: "radial-gradient(ellipse 55% 50%, rgba(6,182,212,0.12) 0%, transparent 65%)",
+          filter: "blur(8px)",
+        }} />
+      </div>
+
+      {/* Prismatic rim — water-blue accent */}
+      <div
+        className="absolute inset-0 rounded-full pointer-events-none"
         style={{
-          background: "linear-gradient(135deg, #e0d5ff 0%, #c4b5fd 40%, #a5b4fc 100%)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-          textShadow: "0 0 8px rgba(168,85,247,0.5)",
+          border: "1px solid transparent",
+          background: `
+            linear-gradient(180deg,
+              rgba(255,255,255,0.25) 0%,
+              rgba(167,243,248,0.18) 25%,
+              rgba(34,211,238,0.15) 55%,
+              rgba(255,255,255,0.22) 100%
+            ) border-box
+          `,
+          WebkitMask: "linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0)",
+          WebkitMaskComposite: "xor",
+          mask: "linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0)",
+          maskComposite: "exclude",
+        }}
+      />
+
+      {/* Specular sweep — top-left */}
+      <div
+        className="absolute inset-0 rounded-full pointer-events-none"
+        style={{
+          background: "linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.03) 30%, transparent 55%)",
+        }}
+      />
+
+      {/* Top rim light */}
+      <div
+        className="absolute inset-0 rounded-full pointer-events-none"
+        style={{
+          background: "linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 22%)",
+        }}
+      />
+
+      {/* Bright inner edge ring */}
+      <div
+        className="absolute inset-[1px] rounded-full pointer-events-none"
+        style={{
+          border: "1px solid rgba(255,255,255,0.18)",
+          boxShadow: "inset 0 1px 2px rgba(255,255,255,0.1)",
+        }}
+      />
+
+      {/* Count number */}
+      <span
+        className="relative z-10 text-xs font-bold tracking-wider"
+        style={{
+          color: "rgba(255,255,255,0.95)",
+          textShadow: "0 1px 4px rgba(0,0,0,0.5), 0 0 8px rgba(34,211,238,0.15)",
         }}
       >
-        浮事
+        {activeCount}
       </span>
     </div>
   );

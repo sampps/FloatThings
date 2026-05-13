@@ -13,13 +13,14 @@
     "windows": [
       {
         "title": "浮事",
-        "width": 110,
-        "height": 56,
+        "width": 310,
+        "height": 480,
         "resizable": false,
+        "maximizable": false,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
-        "skipTaskbar": true,
+        "skipTaskbar": false,
         "shadow": false,
         "visible": true,
         "center": true
@@ -30,7 +31,7 @@
     }
   },
   "bundle": {
-    "active": true,
+    "active": false,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -40,9 +41,5 @@
       "icons/icon.ico"
     ]
   },
-  "plugins": {
-    "global-shortcut": {
-      "shortcuts": []
-    }
-  }
+  "plugins": {}
 }

@@ -1,157 +1,342 @@
 import { useRef, useCallback, useState } from "react";
-import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import type { TodoItem } from "../types";
 import { useTodoStore } from "../store/useTodoStore";
 import BulbButton from "./BulbButton";
-
-const bulbAccent: Record<string, { border: string; bg: string; text: string }> = {
-  green: {
-    border: "rgba(34,197,94,0.2)",
-    bg: "rgba(34,197,94,0.04)",
-    text: "rgba(34,197,94,0.3)",
-  },
-  yellow: {
-    border: "rgba(234,179,8,0.2)",
-    bg: "rgba(234,179,8,0.04)",
-    text: "rgba(234,179,8,0.3)",
-  },
-  red: {
-    border: "rgba(239,68,68,0.2)",
-    bg: "rgba(239,68,68,0.04)",
-    text: "rgba(239,68,68,0.3)",
-  },
-};
+import { themes } from "../theme";
 
 interface Props {
   todo: TodoItem;
+  variant?: "active" | "completed";
 }
 
-export default function TodoCard({ todo }: Props) {
+const bulbAccent: Record<string, { border: string; bg: string; bar: string }> = {
+  green: {
+    border: "rgba(96,165,250,0.45)",
+    bg: "rgba(96,165,250,0.14)",
+    bar: "#60a5fa",
+  },
+  yellow: {
+    border: "rgba(250,204,21,0.45)",
+    bg: "rgba(250,204,21,0.14)",
+    bar: "#facc15",
+  },
+  red: {
+    border: "rgba(248,113,113,0.45)",
+    bg: "rgba(248,113,113,0.14)",
+    bar: "#f87171",
+  },
+};
+
+const completedAccent: Record<string, { border: string; bg: string; bar: string }> = {
+  green:  { border: "rgba(96,165,250,0.3)",  bg: "rgba(96,165,250,0.07)",  bar: "#60a5fa" },
+  yellow: { border: "rgba(250,204,21,0.3)", bg: "rgba(250,204,21,0.07)", bar: "#facc15" },
+  red:    { border: "rgba(248,113,113,0.3)", bg: "rgba(248,113,113,0.07)", bar: "#f87171" },
+};
+
+export default function TodoCard({ todo, variant = "active" }: Props) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const innerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const completeTodo = useTodoStore((s) => s.completeTodo);
   const discardTodo = useTodoStore((s) => s.discardTodo);
+  const restoreTodo = useTodoStore((s) => s.restoreTodo);
+  const editTodo = useTodoStore((s) => s.editTodo);
   const cycleBulb = useTodoStore((s) => s.cycleBulb);
+  const themeMode = useTodoStore((s) => s.theme);
+  const t = themes[themeMode];
 
   const [isDragging, setIsDragging] = useState(false);
+  const [dragX, setDragX] = useState(0);
   const dragStartX = useRef(0);
-  const dragCurrentX = useRef(0);
+  const cardWidth = useRef(0);
 
-  const colors = bulbAccent[todo.bulbState];
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState("");
 
-  // Entrance animation
-  useGSAP(
-    () => {
-      gsap.from(cardRef.current, {
-        y: 20,
-        opacity: 0,
-        scale: 0.92,
-        duration: 0.45,
-        ease: "back.out(1.4)",
-      });
-    },
-    { scope: cardRef }
-  );
+  const colors = variant === "completed" ? completedAccent[todo.bulbState] : bulbAccent[todo.bulbState];
+
+  const absDrag = Math.abs(dragX);
+  const cardW = cardWidth.current || 280;
+  const thresholdPx = cardW * 0.35;
+  const isPastThreshold = absDrag > thresholdPx;
+  const direction = dragX > 0 ? "right" : "left";
+  const indicatorOpacity = Math.min(absDrag / thresholdPx, 1);
 
   const animateOut = useCallback(
-    (direction: "left" | "right") => {
-      const x = direction === "right" ? 160 : -160;
+    (dir: "left" | "right") => {
+      const x = dir === "right" ? 200 : -200;
       gsap.to(cardRef.current, {
         x,
         opacity: 0,
-        scale: 0.9,
-        duration: 0.35,
+        duration: 0.3,
         ease: "power2.in",
         onComplete: () => {
-          if (direction === "right") completeTodo(todo.id);
-          else discardTodo(todo.id);
+          if (variant === "completed") {
+            if (dir === "right") restoreTodo(todo.id);
+            else discardTodo(todo.id);
+          } else {
+            if (dir === "right") completeTodo(todo.id);
+            else discardTodo(todo.id);
+          }
         },
       });
     },
-    [todo.id, completeTodo, discardTodo]
+    [todo.id, variant, completeTodo, discardTodo, restoreTodo]
   );
 
-  // Pointer-based swipe
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (cardRef.current) {
+      cardWidth.current = cardRef.current.offsetWidth;
+    }
     dragStartX.current = e.clientX;
-    dragCurrentX.current = 0;
     setIsDragging(true);
-    gsap.set(cardRef.current, { transition: "none" });
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return;
-    const dx = e.clientX - dragStartX.current;
-    dragCurrentX.current = dx;
-    // Resistance
-    const resisted = dx * 0.6;
-    gsap.set(cardRef.current, { x: resisted });
-    gsap.set(innerRef.current, { opacity: 1 - Math.abs(dx) / 180 });
+    const dx = (e.clientX - dragStartX.current) * 0.6;
+    setDragX(dx);
   };
 
   const handlePointerUp = () => {
     setIsDragging(false);
-    const dx = dragCurrentX.current;
-
-    if (Math.abs(dx) > 60) {
-      animateOut(dx > 0 ? "right" : "left");
+    if (isPastThreshold) {
+      animateOut(direction);
     } else {
-      // Spring back
       gsap.to(cardRef.current, {
         x: 0,
-        duration: 0.4,
+        duration: 0.35,
         ease: "elastic.out(1, 0.5)",
       });
-      gsap.to(innerRef.current, {
-        opacity: 1,
-        duration: 0.2,
-      });
+    }
+    setDragX(0);
+  };
+
+  const handleDoubleClick = () => {
+    if (variant !== "completed") {
+      setEditText(todo.text);
+      setEditing(true);
+      setTimeout(() => inputRef.current?.select(), 50);
     }
   };
 
+  const commitEdit = () => {
+    if (editText.trim() && editText.trim() !== todo.text) {
+      editTodo(todo.id, editText.trim());
+    }
+    setEditing(false);
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") commitEdit();
+    if (e.key === "Escape") setEditing(false);
+  };
+
+  const isCompleted = variant === "completed";
+
+  const barColor = isCompleted
+    ? completedAccent[todo.bulbState].bar
+    : isPastThreshold
+      ? (direction === "right" ? "#4ade80" : "#f87171")
+      : bulbAccent[todo.bulbState].bar;
+
   return (
-    <div
-      ref={cardRef}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-      className="relative flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-grab active:cursor-grabbing touch-none"
-      style={{
-        border: `1px solid ${colors.border}`,
-        background: colors.bg,
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        transition: "border-color 0.6s, background-color 0.6s",
-      }}
-    >
-      {/* Swipe hint: left discard indicator */}
-      <div className="absolute left-0 top-0 bottom-0 flex items-center pl-2 pointer-events-none opacity-0"
-        style={{ color: "#ef4444", fontSize: 10 }}>
-        ✕
-      </div>
-      {/* Swipe hint: right complete indicator */}
-      <div className="absolute right-0 top-0 bottom-0 flex items-center pr-2 pointer-events-none opacity-0"
-        style={{ color: "#22c55e", fontSize: 10 }}>
-        ✓
+    <div className="relative overflow-hidden rounded-xl select-none" data-no-collapse>
+      {/* Left background fill */}
+      <div
+        className="absolute inset-0 rounded-xl pointer-events-none"
+        style={{
+          background: isCompleted
+            ? "linear-gradient(90deg, rgba(34,197,94,0.3) 0%, rgba(34,197,94,0.08) 50%, transparent 100%)"
+            : "linear-gradient(90deg, rgba(34,197,94,0.3) 0%, rgba(34,197,94,0.08) 50%, transparent 100%)",
+          opacity: direction === "right" ? indicatorOpacity : 0,
+          transition: isDragging ? "none" : "opacity 0.25s",
+        }}
+      />
+
+      {/* Right background fill */}
+      <div
+        className="absolute inset-0 rounded-xl pointer-events-none"
+        style={{
+          background: isCompleted
+            ? "linear-gradient(270deg, rgba(239,68,68,0.3) 0%, rgba(239,68,68,0.08) 50%, transparent 100%)"
+            : "linear-gradient(270deg, rgba(239,68,68,0.3) 0%, rgba(239,68,68,0.08) 50%, transparent 100%)",
+          opacity: direction === "left" ? indicatorOpacity : 0,
+          transition: isDragging ? "none" : "opacity 0.25s",
+        }}
+      />
+
+      {/* Left label — 完成/恢复 */}
+      <div
+        className="absolute left-0 top-0 bottom-0 flex items-center pointer-events-none"
+        style={{
+          paddingLeft: 14,
+          opacity: direction === "right" ? indicatorOpacity : 0,
+          transition: isDragging ? "none" : "opacity 0.15s",
+        }}
+      >
+        <div className="flex items-center gap-1.5">
+          <div
+            className="flex items-center justify-center rounded-full transition-all"
+            style={{
+              width: isPastThreshold && direction === "right" ? 24 : 16,
+              height: isPastThreshold && direction === "right" ? 24 : 16,
+              background: isPastThreshold && direction === "right"
+                ? "rgba(34,197,94,0.4)"
+                : "rgba(34,197,94,0.1)",
+              boxShadow: isPastThreshold && direction === "right"
+                ? "0 0 20px rgba(34,197,94,0.7)"
+                : "none",
+              transform: isPastThreshold && direction === "right" ? "scale(1.15)" : "scale(1)",
+            }}
+          >
+            <span style={{
+              color: isPastThreshold && direction === "right" ? "#4ade80" : "rgba(34,197,94,0.5)",
+              fontSize: isPastThreshold && direction === "right" ? 13 : 10,
+              fontWeight: 700,
+            }}>✓</span>
+          </div>
+          {isPastThreshold && direction === "right" && (
+            <span
+              className="transition-all"
+              style={{
+                color: "#4ade80",
+                fontSize: 13,
+                fontWeight: 700,
+                textShadow: "0 0 12px rgba(34,197,94,0.6)",
+                transform: "scale(1.05)",
+              }}
+            >
+              {isCompleted ? "恢复" : "完成"}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div ref={innerRef} className="flex items-center gap-2 w-full">
-        {/* Bulb indicator */}
-        <BulbButton state={todo.bulbState} onClick={() => cycleBulb(todo.id)} />
+      {/* Right label — 删除 */}
+      <div
+        className="absolute right-0 top-0 bottom-0 flex items-center pointer-events-none"
+        style={{
+          paddingRight: 14,
+          opacity: direction === "left" ? indicatorOpacity : 0,
+          transition: isDragging ? "none" : "opacity 0.15s",
+        }}
+      >
+        <div className="flex items-center gap-1.5">
+          {isPastThreshold && direction === "left" && (
+            <span
+              className="transition-all"
+              style={{
+                color: "#f87171",
+                fontSize: 13,
+                fontWeight: 700,
+                textShadow: "0 0 12px rgba(239,68,68,0.6)",
+                transform: "scale(1.05)",
+              }}
+            >
+              删除
+            </span>
+          )}
+          <div
+            className="flex items-center justify-center rounded-full transition-all"
+            style={{
+              width: isPastThreshold && direction === "left" ? 24 : 16,
+              height: isPastThreshold && direction === "left" ? 24 : 16,
+              background: isPastThreshold && direction === "left"
+                ? "rgba(239,68,68,0.4)"
+                : "rgba(239,68,68,0.1)",
+              boxShadow: isPastThreshold && direction === "left"
+                ? "0 0 20px rgba(239,68,68,0.7)"
+                : "none",
+              transform: isPastThreshold && direction === "left" ? "scale(1.15)" : "scale(1)",
+            }}
+          >
+            <span style={{
+              color: isPastThreshold && direction === "left" ? "#f87171" : "rgba(239,68,68,0.5)",
+              fontSize: isPastThreshold && direction === "left" ? 13 : 10,
+              fontWeight: 700,
+            }}>✕</span>
+          </div>
+        </div>
+      </div>
 
-        {/* Text */}
-        <span
-          className="flex-1 text-[13px] leading-tight truncate"
-          style={{
-            color: "rgba(228,228,241,0.9)",
-            textShadow: "0 0 6px rgba(168,85,247,0.2)",
-          }}
-        >
-          {todo.text}
-        </span>
+      {/* Card body */}
+      <div
+        ref={cardRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="relative flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-grab active:cursor-grabbing touch-none"
+        style={{
+          border: `1px solid ${isPastThreshold
+            ? direction === "right"
+              ? "rgba(34,197,94,0.6)"
+              : "rgba(239,68,68,0.6)"
+            : colors.border}`,
+          borderLeft: `3px solid ${barColor}`,
+          background: isPastThreshold
+            ? direction === "right"
+              ? "rgba(34,197,94,0.08)"
+              : "rgba(239,68,68,0.08)"
+            : colors.bg,
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          boxShadow: isPastThreshold
+            ? direction === "right"
+              ? "0 0 16px rgba(34,197,94,0.25)"
+              : "0 0 16px rgba(239,68,68,0.25)"
+            : t.cardShadow,
+          transform: dragX !== 0 ? `translateX(${dragX}px)` : undefined,
+          transition: isDragging
+            ? "border-color 0.15s, background 0.15s, box-shadow 0.15s"
+            : "border-color 0.6s, background 0.6s, box-shadow 0.6s, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)",
+        }}
+      >
+        <div className="flex items-center w-full" style={{ gap: 13 }}>
+          {isCompleted ? (
+            <div
+              className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0"
+              style={{
+                background: `${completedAccent[todo.bulbState].bar}22`,
+                border: `1px solid ${completedAccent[todo.bulbState].bar}44`,
+              }}
+            >
+              <span style={{ color: completedAccent[todo.bulbState].bar, fontSize: 10, fontWeight: 700 }}>✓</span>
+            </div>
+          ) : (
+            <BulbButton state={todo.bulbState} onClick={() => cycleBulb(todo.id)} />
+          )}
+          <span
+            className="flex-1 text-[13px] leading-tight"
+            onDoubleClick={handleDoubleClick}
+            style={{
+              color: t.textColor,
+              textShadow: t.textShadow,
+              cursor: variant !== "completed" ? "text" : "default",
+            }}
+          >
+            {editing ? (
+              <input
+                ref={inputRef}
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={handleEditKeyDown}
+                onBlur={commitEdit}
+                className="w-full rounded px-2 py-0.5 text-[13px] outline-none"
+                style={{
+                  background: t.inputBg,
+                  border: `1px solid ${t.inputBorder}`,
+                  color: t.textColor,
+                  caretColor: "#22d3ee",
+                }}
+              />
+            ) : (
+              todo.text
+            )}
+          </span>
+        </div>
       </div>
     </div>
   );

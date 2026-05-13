@@ -5,19 +5,19 @@ import type { BulbState } from "../types";
 
 const bulbColors: Record<BulbState, { fill: string; glow: string; shadow: string }> = {
   green: {
-    fill: "#22c55e",
-    glow: "rgba(34,197,94,0.6)",
-    shadow: "0 0 10px rgba(34,197,94,0.45)",
+    fill: "#60a5fa",
+    glow: "rgba(96,165,250,0.5)",
+    shadow: "0 0 10px rgba(96,165,250,0.35)",
   },
   yellow: {
-    fill: "#eab308",
-    glow: "rgba(234,179,8,0.6)",
-    shadow: "0 0 10px rgba(234,179,8,0.45)",
+    fill: "#facc15",
+    glow: "rgba(250,204,21,0.5)",
+    shadow: "0 0 10px rgba(250,204,21,0.35)",
   },
   red: {
-    fill: "#ef4444",
-    glow: "rgba(239,68,68,0.6)",
-    shadow: "0 0 10px rgba(239,68,68,0.45)",
+    fill: "#f87171",
+    glow: "rgba(248,113,113,0.5)",
+    shadow: "0 0 10px rgba(248,113,113,0.35)",
   },
 };
 

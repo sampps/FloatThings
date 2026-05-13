@@ -6,11 +6,7 @@ import App from "./App";
 import "./styles/globals.css";
 
 gsap.registerPlugin(useGSAP);
-
-// Project-wide defaults
-gsap.defaults({
-  overwrite: "auto",
-});
+gsap.defaults({ overwrite: "auto" });
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
