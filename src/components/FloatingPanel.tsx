@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { useTodoStore } from "../store/useTodoStore";
-import { Plus, Trash2, Sun, Moon } from "lucide-react";
+import { Plus, Trash2, Sun, Moon, Pin, PinOff } from "lucide-react";
 import type { TodoItem } from "../types";
 import TodoCard from "./TodoCard";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -17,6 +17,18 @@ export default function FloatingPanel() {
   const [inputVisible, setInputVisible] = useState(false);
   const [inputText, setInputText] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const [pinned, setPinned] = useState(true); // 默认置顶
+
+  // 初始化时立即置顶
+  useEffect(() => {
+    getCurrentWindow().setAlwaysOnTop(true);
+  }, []);
+
+  const togglePin = async () => {
+    const next = !pinned;
+    setPinned(next);
+    await getCurrentWindow().setAlwaysOnTop(next);
+  };
 
   const addTodo = useTodoStore((s) => s.addTodo);
   const setView = useTodoStore((s) => s.setView);
@@ -138,8 +150,8 @@ export default function FloatingPanel() {
       ref={panelRef}
       className="relative flex flex-col overflow-hidden"
       style={{
-        width: 310,
-        height: 480,
+        width: "100%",
+        height: "100%",
         borderRadius: 22,
         background: t.panelBg,
         border: t.panelBorder,
@@ -150,21 +162,21 @@ export default function FloatingPanel() {
     >
       {/* Warm caustic — upper */}
       <div className="absolute pointer-events-none" style={{
-        width: 280, height: 200, top: "2%", left: "3%",
+        width: "90%", height: "42%", top: "2%", left: "3%",
         background: t.causticTop,
         filter: "blur(42px)",
       }} />
 
       {/* Water-blue caustic — mid accent */}
       <div className="absolute pointer-events-none" style={{
-        width: 250, height: 190, top: "28%", left: "12%",
+        width: "80%", height: "40%", top: "28%", left: "12%",
         background: t.causticMid,
         filter: "blur(44px)",
       }} />
 
       {/* Deeper blue caustic — lower */}
       <div className="absolute pointer-events-none" style={{
-        width: 250, height: 190, top: "50%", left: "-3%",
+        width: "80%", height: "40%", top: "50%", left: "-3%",
         background: t.causticLow,
         filter: "blur(38px)",
       }} />
@@ -262,6 +274,19 @@ export default function FloatingPanel() {
               : <Moon size={13} color="rgba(15,23,42,0.7)" />
             }
           </button>
+          <button
+            onClick={togglePin}
+            className={`flex items-center justify-center w-7 h-7 rounded-full border transition-colors cursor-pointer ${pinned
+              ? (themeMode === "dark" ? "bg-cyan-400/30 hover:bg-cyan-400/45 border-cyan-400/40" : "bg-cyan-500/20 hover:bg-cyan-500/35 border-cyan-500/30")
+              : (themeMode === "dark" ? "bg-white/15 hover:bg-white/25 border-white/18" : "bg-black/6 hover:bg-black/12 border-black/10")
+            }`}
+            title={pinned ? "取消置顶" : "置顶显示"}
+          >
+            {pinned
+              ? <Pin size={13} color={themeMode === "dark" ? "rgba(34,211,238,0.95)" : "rgba(6,182,212,0.9)"} />
+              : <PinOff size={13} color={themeMode === "dark" ? "rgba(255,255,255,0.7)" : "rgba(15,23,42,0.5)"} />
+            }
+          </button>
         </div>
 
         <div className={`flex gap-0 rounded-full p-0.5 ${themeMode === "dark" ? "bg-white/10" : "bg-black/6"}`}>
@@ -331,10 +356,261 @@ export default function FloatingPanel() {
 
 function ActiveTodoList() {
   const todos = useTodoStore((s) => s.todos);
+  const reorderTodos = useTodoStore((s) => s.reorderTodos);
   const themeMode = useTodoStore((s) => s.theme);
   const activeTodos = todos.filter((t) => t.status === "active");
-
   const textShadow = themes[themeMode].textShadow;
+
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const finalOrderRef = useRef<string[]>([]);
+
+  const dragSrcId = useRef<string | null>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
+  const ghostLeft = useRef(0);
+  const ghostHeight = useRef(44);
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const offsetsRef = useRef<Map<string, number>>(new Map());
+  const logicalOrder = useRef<string[]>([]);
+  const rafId = useRef<number | null>(null);
+  // Snapshot of each card's natural top/height taken at drag start — NEVER re-read during drag
+  const snapshotRef = useRef<Map<string, { top: number; height: number }>>(new Map());
+  // Ghost Y at the moment of pointer-up, so we can animate the real card from there
+  const ghostDropY = useRef(0);
+
+  const baseSorted = getSortedTodos(activeTodos);
+
+  const setCardRef = (id: string, el: HTMLDivElement | null) => {
+    if (el) cardRefs.current.set(id, el);
+    else cardRefs.current.delete(id);
+  };
+
+  const applyOffset = (id: string, dy: number) => {
+    const el = cardRefs.current.get(id);
+    if (!el) return;
+    const prev = offsetsRef.current.get(id) ?? 0;
+    if (prev === dy) return; // unchanged → skip DOM write (prevents transition restart)
+    offsetsRef.current.set(id, dy);
+    el.style.transition = "transform 0.8s cubic-bezier(0.22, 1, 0.36, 1)";
+    el.style.transform = dy !== 0 ? `translateY(${dy}px)` : "";
+  };
+
+  // clearAllOffsets: animate displaced cards back to 0, then call onDone.
+  // Committing reorder AFTER cards settle prevents the flash where React
+  // re-orders the DOM while a card still has a non-zero translateY.
+  const clearAllOffsets = (onDone?: () => void) => {
+    const SETTLE_MS = 340;
+    let hasOffset = false;
+    cardRefs.current.forEach((el, id) => {
+      const prev = offsetsRef.current.get(id) ?? 0;
+      if (prev === 0) return;
+      hasOffset = true;
+      offsetsRef.current.set(id, 0);
+      el.style.transition = "transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)";
+      el.style.transform = "";
+    });
+    if (onDone) {
+      if (hasOffset) {
+        setTimeout(onDone, SETTLE_MS);
+      } else {
+        onDone();
+      }
+    }
+  };
+
+  const handleSortDragStart = (id: string, startY: number) => {
+    const el = cardRefs.current.get(id);
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+
+    // ── Snapshot all cards' positions once ──
+    const snap = new Map<string, { top: number; height: number }>();
+    cardRefs.current.forEach((cardEl, cardId) => {
+      const r = cardEl.getBoundingClientRect();
+      snap.set(cardId, { top: r.top, height: r.height });
+    });
+    snapshotRef.current = snap;
+
+    dragSrcId.current = id;
+    ghostLeft.current = rect.left;
+    ghostHeight.current = rect.height;
+    logicalOrder.current = baseSorted.map((t) => t.id);
+    offsetsRef.current = new Map(baseSorted.map((t) => [t.id, 0]));
+    finalOrderRef.current = [...logicalOrder.current];
+
+    if (ghostRef.current) {
+      ghostRef.current.style.display = "block";
+      ghostRef.current.style.width = `${rect.width}px`;
+      ghostRef.current.style.opacity = "0";
+      ghostRef.current.style.transition = "none";
+      ghostRef.current.style.transform = `translate3d(${rect.left}px, ${rect.top}px, 0) scale(1)`;
+      requestAnimationFrame(() => {
+        if (!ghostRef.current) return;
+        ghostRef.current.style.opacity = "0.92";
+        ghostRef.current.style.transition =
+          "transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.1s ease";
+        ghostRef.current.style.transform =
+          `translate3d(${rect.left}px, ${startY - rect.height / 2}px, 0) scale(1.02)`;
+      });
+    }
+
+    setDraggingId(id);
+  };
+
+  const handleSortDragMove = (currentY: number, _currentX: number) => {
+    if (!dragSrcId.current) return;
+
+    if (rafId.current !== null) cancelAnimationFrame(rafId.current);
+    rafId.current = requestAnimationFrame(() => {
+      rafId.current = null;
+
+      // Track ghost Y so dragEnd knows where to animate the real card from
+      ghostDropY.current = currentY - ghostHeight.current / 2;
+
+      // 1. ghost follows pointer exactly — no transition
+      if (ghostRef.current) {
+        ghostRef.current.style.transition = "none";
+        ghostRef.current.style.transform =
+          `translate3d(${ghostLeft.current}px, ${currentY - ghostHeight.current / 2}px, 0) scale(1.02)`;
+      }
+
+      // 2. Insertion index — use SNAPSHOT tops (stable, never re-read DOM)
+      const srcId = dragSrcId.current!;
+      const origIds = baseSorted.map((t) => t.id);
+      const srcOrigIdx = origIds.indexOf(srcId);
+      const GAP = 8;
+      const slotH = ghostHeight.current + GAP;
+
+      const others: { id: string; origIdx: number; snapTop: number; snapH: number }[] = [];
+      origIds.forEach((id, idx) => {
+        if (id === srcId) return;
+        const s = snapshotRef.current.get(id);
+        if (!s) return;
+        others.push({ id, origIdx: idx, snapTop: s.top, snapH: s.height });
+      });
+      others.sort((a, b) => a.snapTop - b.snapTop);
+
+      let insertIdx = others.length;
+      for (let i = 0; i < others.length; i++) {
+        const mid = others[i].snapTop + others[i].snapH * 0.5;
+        if (currentY < mid) { insertIdx = i; break; }
+      }
+
+      // 3. Check if order changed
+      const newOrder = others.map((o) => o.id);
+      newOrder.splice(insertIdx, 0, srcId);
+      if (newOrder.join(",") === logicalOrder.current.join(",")) return;
+      logicalOrder.current = newOrder;
+      finalOrderRef.current = newOrder;
+
+      // 4. Apply translateY offsets — only ±1 slot, no accumulation
+      others.forEach(({ id, origIdx }) => {
+        const newIdx = newOrder.indexOf(id);
+        const srcNewIdx = insertIdx;
+        let dy = 0;
+        if (origIdx < srcOrigIdx && newIdx >= srcNewIdx) {
+          dy = slotH;   // was above src, got pushed down
+        } else if (origIdx > srcOrigIdx && newIdx < srcNewIdx) {
+          dy = -slotH;  // was below src, got pulled up
+        }
+        applyOffset(id, dy);
+      });
+    });
+  };
+
+  const handleSortDragEnd = () => {
+    if (rafId.current !== null) { cancelAnimationFrame(rafId.current); rafId.current = null; }
+
+    const finalOrder = [...finalOrderRef.current];
+    const srcId = dragSrcId.current;
+
+    const FLY_MS = 500;
+
+    // 1. Hard-clear translateY on all other cards immediately
+    cardRefs.current.forEach((el, id) => {
+      if (id === srcId) return;
+      el.style.transition = "none";
+      el.style.transform = "";
+    });
+    offsetsRef.current = new Map();
+
+    // 2. Commit reorder — draggingId still set, so src card stays opacity:0
+    dragSrcId.current = null;
+    snapshotRef.current = new Map();
+    if (srcId && finalOrder.length) reorderTodos(finalOrder);
+
+    // 3. Freeze ghost at current position, scale back to 1
+    const ghost = ghostRef.current;
+    if (ghost) {
+      const m = ghost.style.transform.match(/translate3d\([^,]+,\s*([\d.-]+)px/);
+      const curY = m ? parseFloat(m[1]) : ghostDropY.current;
+      ghost.style.transition = "none";
+      ghost.style.transform = `translate3d(${ghostLeft.current}px, ${curY}px, 0) scale(1)`;
+    }
+
+    // 4. Wait two rAFs for React to re-render (real card now at final DOM position)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const realEl = srcId ? cardRefs.current.get(srcId) : null;
+        if (!ghost || !realEl) {
+          if (ghost) ghost.style.display = "none";
+          setDraggingId(null);
+          return;
+        }
+
+        // Get real card's final position
+        const targetRect = realEl.getBoundingClientRect();
+        const targetY = targetRect.top;
+
+        // Mirror the ghost flight on the real card (translateY, opacity:0)
+        // so they're in perfect sync — real card shadows ghost invisibly
+        const ghostM = ghost.style.transform.match(/translate3d\([^,]+,\s*([\d.-]+)px/);
+        const ghostCurY = ghostM ? parseFloat(ghostM[1]) : ghostDropY.current;
+        const realDy = ghostCurY - targetRect.top;
+
+        realEl.style.transition = "none";
+        realEl.style.transform = Math.abs(realDy) >= 1 ? `translateY(${realDy}px)` : "";
+        realEl.style.opacity = "0";
+
+        // Fly ghost to target
+        ghost.style.transition = `transform ${FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+        ghost.style.transform = `translate3d(${ghostLeft.current}px, ${targetY}px, 0) scale(1)`;
+
+        // Fly real card in sync (same duration, same easing) but invisible
+        if (Math.abs(realDy) >= 1) {
+          void realEl.offsetHeight;
+          realEl.style.transition = `transform ${FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+          realEl.style.transform = "translateY(0)";
+        }
+
+        // At the exact end: crossfade ghost out, real card in — both via inline style
+        setTimeout(() => {
+          requestAnimationFrame(() => {
+            const XFADE = 80;
+            // Real card: already at correct position (translateY:0), snap opacity to 0 then fade in
+            realEl.style.transition = "none";
+            realEl.style.transform = "";
+            realEl.style.opacity = "0";
+            void realEl.offsetHeight;
+            realEl.style.transition = `opacity ${XFADE}ms ease`;
+            realEl.style.opacity = "1";
+
+            // Ghost: fade out simultaneously
+            ghost.style.transition = `opacity ${XFADE}ms ease`;
+            ghost.style.opacity = "0";
+
+            setTimeout(() => {
+              ghost.style.display = "none";
+              ghost.style.opacity = "";
+              ghost.style.transition = "";
+              realEl.style.transition = "";
+              realEl.style.opacity = "";
+              setDraggingId(null); // cleanup — real card opacity now controlled by React (=1)
+            }, XFADE + 20);
+          });
+        }, FLY_MS);
+      });
+    });
+  };
 
   if (activeTodos.length === 0) {
     return (
@@ -345,16 +621,57 @@ function ActiveTodoList() {
     );
   }
 
-  const urgencyOrder: Record<string, number> = { red: 0, yellow: 1, green: 2 };
-  const sorted = [...activeTodos].sort((a, b) => urgencyOrder[a.bulbState] - urgencyOrder[b.bulbState]);
+  const draggingTodo = draggingId ? baseSorted.find((t) => t.id === draggingId) : null;
 
   return (
-    <div className="flex flex-col gap-2">
-      {sorted.map((todo) => (
-        <TodoCard key={todo.id} todo={todo} variant="active" />
+    <div className="flex flex-col gap-2" style={{ position: "relative" }}>
+      {baseSorted.map((todo) => (
+        <div
+          key={todo.id}
+          ref={(el) => setCardRef(todo.id, el)}
+          style={{
+            opacity: draggingId === todo.id ? 0 : 1,
+            transition: draggingId === todo.id ? "opacity 0.1s" : "opacity 0.2s",
+            willChange: draggingId ? "transform" : "auto",
+          }}
+        >
+          <TodoCard
+            todo={todo}
+            variant="active"
+            onSortDragStart={handleSortDragStart}
+            onSortDragMove={handleSortDragMove}
+            onSortDragEnd={handleSortDragEnd}
+          />
+        </div>
       ))}
+
+      <div
+        ref={ghostRef}
+        style={{
+          display: "none",
+          position: "fixed",
+          top: 0,
+          left: 0,
+          pointerEvents: "none",
+          zIndex: 9999,
+          filter: "none",
+          willChange: "transform, opacity",
+          transformOrigin: "center center",
+        }}
+      >
+        {draggingTodo && <TodoCard todo={draggingTodo} variant="active" />}
+      </div>
     </div>
   );
+}
+
+function getSortedTodos(activeTodos: TodoItem[]) {
+  const hasManualOrder = activeTodos.some((t) => t.order !== undefined);
+  if (hasManualOrder) {
+    return [...activeTodos].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  }
+  const urgencyOrder: Record<string, number> = { red: 0, yellow: 1, green: 2 };
+  return [...activeTodos].sort((a, b) => urgencyOrder[a.bulbState] - urgencyOrder[b.bulbState]);
 }
 
 function DiscardPoolView() {

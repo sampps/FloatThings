@@ -8,6 +8,11 @@ import { themes } from "../theme";
 interface Props {
   todo: TodoItem;
   variant?: "active" | "completed";
+  // pointer-based sort props (only used in active list)
+  onSortDragStart?: (id: string, startY: number) => void;
+  onSortDragMove?: (currentY: number, currentX: number) => void;
+  onSortDragEnd?: () => void;
+  isDragOver?: boolean;
 }
 
 const bulbAccent: Record<string, { border: string; bg: string; bar: string }> = {
@@ -34,7 +39,7 @@ const completedAccent: Record<string, { border: string; bg: string; bar: string 
   red:    { border: "rgba(248,113,113,0.3)", bg: "rgba(248,113,113,0.07)", bar: "#f87171" },
 };
 
-export default function TodoCard({ todo, variant = "active" }: Props) {
+export default function TodoCard({ todo, variant = "active", onSortDragStart, onSortDragMove, onSortDragEnd, isDragOver }: Props) {
   const cardRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const completeTodo = useTodoStore((s) => s.completeTodo);
@@ -49,6 +54,8 @@ export default function TodoCard({ todo, variant = "active" }: Props) {
   const [dragX, setDragX] = useState(0);
   const dragStartX = useRef(0);
   const cardWidth = useRef(0);
+  // track whether swipe was actually initiated to avoid blocking clicks
+  const swipeActive = useRef(false);
 
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
@@ -89,21 +96,27 @@ export default function TodoCard({ todo, variant = "active" }: Props) {
       cardWidth.current = cardRef.current.offsetWidth;
     }
     dragStartX.current = e.clientX;
+    swipeActive.current = false;
     setIsDragging(true);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return;
-    const dx = (e.clientX - dragStartX.current) * 0.6;
-    setDragX(dx);
+    const dx = e.clientX - dragStartX.current;
+    if (!swipeActive.current && Math.abs(dx) > 4) {
+      swipeActive.current = true;
+    }
+    if (swipeActive.current) {
+      setDragX(dx * 0.6);
+    }
   };
 
   const handlePointerUp = () => {
     setIsDragging(false);
-    if (isPastThreshold) {
+    if (swipeActive.current && isPastThreshold) {
       animateOut(direction);
-    } else {
+    } else if (swipeActive.current) {
       gsap.to(cardRef.current, {
         x: 0,
         duration: 0.35,
@@ -111,6 +124,7 @@ export default function TodoCard({ todo, variant = "active" }: Props) {
       });
     }
     setDragX(0);
+    swipeActive.current = false;
   };
 
   const handleDoubleClick = () => {
@@ -141,8 +155,34 @@ export default function TodoCard({ todo, variant = "active" }: Props) {
       ? (direction === "right" ? "#4ade80" : "#f87171")
       : bulbAccent[todo.bulbState].bar;
 
+  // ── Drag-handle events (pointer-based vertical sort) ──
+  const handleHandlePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation(); // prevent card's horizontal-swipe from firing
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    onSortDragStart?.(todo.id, e.clientY);
+  };
+
+  const handleHandlePointerMove = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    onSortDragMove?.(e.clientY, e.clientX);
+  };
+
+  const handleHandlePointerUp = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    onSortDragEnd?.();
+  };
+
   return (
-    <div className="relative overflow-hidden rounded-xl select-none" data-no-collapse>
+    <div
+      className="relative overflow-hidden rounded-xl select-none"
+      data-no-collapse
+      style={{
+        opacity: isDragOver ? 0.5 : 1,
+        transition: "opacity 0.15s",
+      }}
+    >
       {/* Left background fill */}
       <div
         className="absolute inset-0 rounded-xl pointer-events-none"
@@ -336,6 +376,34 @@ export default function TodoCard({ todo, variant = "active" }: Props) {
               todo.text
             )}
           </span>
+
+          {/* Drag handle — only for active todos */}
+          {variant === "active" && (
+            <div
+              onPointerDown={handleHandlePointerDown}
+              onPointerMove={handleHandlePointerMove}
+              onPointerUp={handleHandlePointerUp}
+              onPointerCancel={handleHandlePointerUp}
+              className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded cursor-ns-resize opacity-30 hover:opacity-70 transition-opacity"
+              title="拖拽排序"
+              style={{ touchAction: "none" }}
+            >
+              <svg
+                width="10"
+                height="14"
+                viewBox="0 0 10 14"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <circle cx="2.5" cy="2.5" r="1.5" fill="currentColor" />
+                <circle cx="7.5" cy="2.5" r="1.5" fill="currentColor" />
+                <circle cx="2.5" cy="7" r="1.5" fill="currentColor" />
+                <circle cx="7.5" cy="7" r="1.5" fill="currentColor" />
+                <circle cx="2.5" cy="11.5" r="1.5" fill="currentColor" />
+                <circle cx="7.5" cy="11.5" r="1.5" fill="currentColor" />
+              </svg>
+            </div>
+          )}
         </div>
       </div>
     </div>
