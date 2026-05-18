@@ -1,6 +1,21 @@
 use tauri::Manager;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use std::sync::Mutex;
+
+struct AppState {
+    last_w: Mutex<f64>,
+    last_h: Mutex<f64>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            last_w: Mutex::new(52.0),
+            last_h: Mutex::new(52.0),
+        }
+    }
+}
 
 #[tauri::command]
 fn toggle_visible(window: tauri::Window) {
@@ -28,34 +43,85 @@ fn start_dragging(window: tauri::Window) {
 }
 
 #[tauri::command]
-fn resize_window(window: tauri::Window, width: f64, height: f64) {
+fn resize_window(window: tauri::Window, state: tauri::State<'_, AppState>, width: f64, height: f64, keep_top_left: Option<bool>) {
+    {
+        let mut lw = state.last_w.lock().unwrap();
+        let mut lh = state.last_h.lock().unwrap();
+        *lw = width;
+        *lh = height;
+    }
+
+    apply_physical_size(&window, width, height, keep_top_left.unwrap_or(false));
+}
+
+fn apply_physical_size(window: &tauri::Window, width: f64, height: f64, keep_top_left: bool) {
     use tauri::{Size, Position};
     let sf = window.scale_factor().unwrap_or(1.0);
     let pw = (width * sf) as i32;
     let ph = (height * sf) as i32;
 
-    if let (Ok(pos), Ok(outer_size)) = (window.outer_position(), window.outer_size()) {
-        let dx = (outer_size.width as i32 - pw) / 2;
-        let dy = (outer_size.height as i32 - ph) / 2;
-        let nx = pos.x + dx;
-        let ny = pos.y + dy;
+    let (mut nx, mut ny) = if keep_top_left {
+        // Keep top-left corner fixed — for resize grip
+        if let Ok(pos) = window.outer_position() {
+            (pos.x, pos.y)
+        } else {
+            (0, 0)
+        }
+    } else {
+        // Center the window — for bubble ↔ panel transitions
+        if let (Ok(pos), Ok(outer_size)) = (window.outer_position(), window.outer_size()) {
+            let dx = (outer_size.width as i32 - pw) / 2;
+            let dy = (outer_size.height as i32 - ph) / 2;
+            (pos.x + dx, pos.y + dy)
+        } else {
+            (0, 0)
+        }
+    };
 
-        #[cfg(target_os = "windows")]
-        {
-            extern "system" { fn SetWindowPos(h: *mut std::ffi::c_void, _a: *mut std::ffi::c_void, x: i32, y: i32, cx: i32, cy: i32, f: u32) -> i32; }
-            if let Ok(h) = window.hwnd() {
-                const SWP_NOZORDER: u32 = 0x0004;
-                const SWP_NOACTIVATE: u32 = 0x0010;
-                unsafe { SetWindowPos(h.0, std::ptr::null_mut(), nx, ny, pw, ph, SWP_NOZORDER | SWP_NOACTIVATE); }
-                return;
+    // Clamp to the monitor the window is actually on (multi-monitor safe)
+    if let Ok(monitors) = window.available_monitors() {
+        let (cx, cy) = (nx + pw / 2, ny + ph / 2);
+        let mut best = None;
+        for m in &monitors {
+            let s = m.size();
+            let (mx, my, mw, mh) = (m.position().x, m.position().y, s.width as i32, s.height as i32);
+            if cx >= mx && cx < mx + mw && cy >= my && cy < my + mh {
+                best = Some((mx, my, mw, mh));
+                break;
             }
         }
-
-        let _ = window.set_size(Size::Logical((width, height).into()));
-        let _ = window.set_position(Position::Physical((nx, ny).into()));
-    } else {
-        let _ = window.set_size(Size::Logical((width, height).into()));
+        // Fallback to the monitor closest to the window center
+        if best.is_none() && !monitors.is_empty() {
+            let mut min_dist = i32::MAX;
+            for m in &monitors {
+                let s = m.size();
+                let (mx, my, mw, mh) = (m.position().x, m.position().y, s.width as i32, s.height as i32);
+                let dist = (cx - (mx + mw / 2)).abs() + (cy - (my + mh / 2)).abs();
+                if dist < min_dist { min_dist = dist; best = Some((mx, my, mw, mh)); }
+            }
+        }
+        if let Some((mx, my, mw, mh)) = best {
+            let min_visible = 60;
+            if nx < mx + min_visible - pw { nx = mx + min_visible - pw; }
+            if nx > mx + mw - min_visible { nx = mx + mw - min_visible; }
+            if ny < my { ny = my; }
+            if ny > my + mh - min_visible { ny = my + mh - min_visible; }
+        }
     }
+
+    #[cfg(target_os = "windows")]
+    {
+        extern "system" { fn SetWindowPos(h: *mut std::ffi::c_void, _a: *mut std::ffi::c_void, x: i32, y: i32, cx: i32, cy: i32, f: u32) -> i32; }
+        if let Ok(h) = window.hwnd() {
+            const SWP_NOZORDER: u32 = 0x0004;
+            const SWP_NOACTIVATE: u32 = 0x0010;
+            unsafe { SetWindowPos(h.0, std::ptr::null_mut(), nx, ny, pw, ph, SWP_NOZORDER | SWP_NOACTIVATE); }
+            return;
+        }
+    }
+
+    let _ = window.set_size(Size::Logical((width, height).into()));
+    let _ = window.set_position(Position::Physical((nx, ny).into()));
 }
 
 #[tauri::command]
@@ -81,9 +147,20 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![toggle_visible, start_dragging, resize_window, get_cursor_pos])
+        .manage(AppState::default())
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                window.app_handle().exit(0);
+            match &event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                    let state = window.app_handle().state::<AppState>();
+                    let lw = *state.last_w.lock().unwrap();
+                    let lh = *state.last_h.lock().unwrap();
+                    apply_physical_size(&window, lw, lh, false);
+                }
+                _ => {}
             }
         })
         .setup(|app| {

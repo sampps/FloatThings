@@ -7,6 +7,7 @@ export interface TodoItem {
   text: string;
   status: TodoStatus;
   bulbState: BulbState;
+  order: number;
   createdAt: number;
   completedAt: number | null;
 }

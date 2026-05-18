@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { useTodoStore } from "../store/useTodoStore";
-import { Plus, Trash2, Sun, Moon } from "lucide-react";
+import { Plus, Trash2, Sun, Moon, Pin, PinOff } from "lucide-react";
 import type { TodoItem } from "../types";
 import TodoCard from "./TodoCard";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -17,6 +17,13 @@ export default function FloatingPanel() {
   const [inputVisible, setInputVisible] = useState(false);
   const [inputText, setInputText] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const [pinned, setPinned] = useState(false);
+
+  const togglePin = async () => {
+    const next = !pinned;
+    setPinned(next);
+    await getCurrentWindow().setAlwaysOnTop(next);
+  };
 
   const addTodo = useTodoStore((s) => s.addTodo);
   const setView = useTodoStore((s) => s.setView);
@@ -133,13 +140,51 @@ export default function FloatingPanel() {
   const accent = "rgba(6,182,212,0.3)";
   const accentBright = "rgba(34,211,238,0.5)";
 
+  // Resize grip — uses window-level events for smooth tracking
+  const resizeRef = useRef({ x: 0, y: 0, w: 310, h: 480 });
+  const isResizing = useRef(false);
+  const setPanelSize = useTodoStore((s) => s.setPanelSize);
+  const panelW = useTodoStore((s) => s.panelWidth);
+  const panelH = useTodoStore((s) => s.panelHeight);
+
+  const handleGripDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isResizing.current = true;
+    resizeRef.current = { x: e.clientX, y: e.clientY, w: panelW, h: panelH };
+    window.addEventListener("mousemove", onGripMove);
+    window.addEventListener("mouseup", onGripUp);
+  };
+
+  const onGripMove = (e: MouseEvent) => {
+    if (!isResizing.current) return;
+    const dx = e.clientX - resizeRef.current.x;
+    const dy = e.clientY - resizeRef.current.y;
+    const newW = Math.max(260, Math.round(resizeRef.current.w + dx));
+    const newH = Math.max(200, Math.round(resizeRef.current.h + dy));
+    invoke("resize_window", { width: newW, height: newH, keepTopLeft: true });
+  };
+
+  const onGripUp = (e: MouseEvent) => {
+    if (!isResizing.current) return;
+    isResizing.current = false;
+    window.removeEventListener("mousemove", onGripMove);
+    window.removeEventListener("mouseup", onGripUp);
+    const dx = e.clientX - resizeRef.current.x;
+    const dy = e.clientY - resizeRef.current.y;
+    const newW = Math.max(260, Math.round(resizeRef.current.w + dx));
+    const newH = Math.max(200, Math.round(resizeRef.current.h + dy));
+    setPanelSize(newW, newH);
+  };
+
   return (
     <div
       ref={panelRef}
       className="relative flex flex-col overflow-hidden"
       style={{
-        width: 310,
-        height: 480,
+        width: "100%",
+        height: "100%",
+        boxSizing: "border-box",
         borderRadius: 22,
         background: t.panelBg,
         border: t.panelBorder,
@@ -150,21 +195,21 @@ export default function FloatingPanel() {
     >
       {/* Warm caustic — upper */}
       <div className="absolute pointer-events-none" style={{
-        width: 280, height: 200, top: "2%", left: "3%",
+        width: "90%", height: "42%", top: "2%", left: "3%",
         background: t.causticTop,
         filter: "blur(42px)",
       }} />
 
       {/* Water-blue caustic — mid accent */}
       <div className="absolute pointer-events-none" style={{
-        width: 250, height: 190, top: "28%", left: "12%",
+        width: "80%", height: "40%", top: "28%", left: "12%",
         background: t.causticMid,
         filter: "blur(44px)",
       }} />
 
       {/* Deeper blue caustic — lower */}
       <div className="absolute pointer-events-none" style={{
-        width: 250, height: 190, top: "50%", left: "-3%",
+        width: "80%", height: "40%", top: "50%", left: "-3%",
         background: t.causticLow,
         filter: "blur(38px)",
       }} />
@@ -262,6 +307,19 @@ export default function FloatingPanel() {
               : <Moon size={13} color="rgba(15,23,42,0.7)" />
             }
           </button>
+          <button
+            onClick={togglePin}
+            className={`flex items-center justify-center w-7 h-7 rounded-full border transition-colors cursor-pointer ${pinned
+              ? (themeMode === "dark" ? "bg-cyan-400/30 hover:bg-cyan-400/45 border-cyan-400/40" : "bg-cyan-500/20 hover:bg-cyan-500/35 border-cyan-500/30")
+              : (themeMode === "dark" ? "bg-white/15 hover:bg-white/25 border-white/18" : "bg-black/6 hover:bg-black/12 border-black/10")
+            }`}
+            title={pinned ? "取消置顶" : "置顶显示"}
+          >
+            {pinned
+              ? <Pin size={13} color={themeMode === "dark" ? "rgba(34,211,238,0.95)" : "rgba(6,182,212,0.9)"} />
+              : <PinOff size={13} color={themeMode === "dark" ? "rgba(255,255,255,0.7)" : "rgba(15,23,42,0.5)"} />
+            }
+          </button>
         </div>
 
         <div className={`flex gap-0 rounded-full p-0.5 ${themeMode === "dark" ? "bg-white/10" : "bg-black/6"}`}>
@@ -325,16 +383,265 @@ export default function FloatingPanel() {
           <CompletedListView />
         )}
       </div>
+
+      {/* Resize grip — bottom-right corner */}
+      <div
+        onMouseDown={handleGripDown}
+        className="absolute bottom-2 right-2 flex items-center justify-center w-8 h-8 cursor-nwse-resize opacity-20 hover:opacity-55 transition-opacity z-10 rounded-br-[18px]"
+        style={{ touchAction: "none" }}
+        title="拖拽调整窗口大小"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12.5 1v11.5H1" stroke="currentColor" strokeWidth="1.8" opacity="0.7" />
+          <path d="M12.5 5v7.5H5" stroke="currentColor" strokeWidth="1.4" opacity="0.45" />
+          <path d="M12.5 9v3.5H9" stroke="currentColor" strokeWidth="1" opacity="0.25" />
+        </svg>
+      </div>
     </div>
   );
 }
 
 function ActiveTodoList() {
   const todos = useTodoStore((s) => s.todos);
+  const reorderTodos = useTodoStore((s) => s.reorderTodos);
   const themeMode = useTodoStore((s) => s.theme);
   const activeTodos = todos.filter((t) => t.status === "active");
-
   const textShadow = themes[themeMode].textShadow;
+
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const finalOrderRef = useRef<string[]>([]);
+
+  const dragSrcId = useRef<string | null>(null);
+  const dragSrcBulb = useRef<string>("");
+  const ghostRef = useRef<HTMLDivElement>(null);
+  const ghostLeft = useRef(0);
+  const ghostHeight = useRef(44);
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const offsetsRef = useRef<Map<string, number>>(new Map());
+  const logicalOrder = useRef<string[]>([]);
+  const rafId = useRef<number | null>(null);
+  const snapshotRef = useRef<Map<string, { top: number; height: number }>>(new Map());
+  const ghostDropY = useRef(0);
+
+  const baseSorted = getSortedTodos(activeTodos);
+
+  const setCardRef = (id: string, el: HTMLDivElement | null) => {
+    if (el) cardRefs.current.set(id, el);
+    else cardRefs.current.delete(id);
+  };
+
+  const applyOffset = (id: string, dy: number) => {
+    const el = cardRefs.current.get(id);
+    if (!el) return;
+    const prev = offsetsRef.current.get(id) ?? 0;
+    if (prev === dy) return;
+    offsetsRef.current.set(id, dy);
+    el.style.transition = "transform 0.8s cubic-bezier(0.22, 1, 0.36, 1)";
+    el.style.transform = dy !== 0 ? `translateY(${dy}px)` : "";
+  };
+
+  const handleSortDragStart = (id: string, startY: number) => {
+    const el = cardRefs.current.get(id);
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const item = activeTodos.find((t) => t.id === id);
+    if (!item) return;
+
+    // Snapshot all cards
+    const snap = new Map<string, { top: number; height: number }>();
+    cardRefs.current.forEach((cardEl, cardId) => {
+      const r = cardEl.getBoundingClientRect();
+      snap.set(cardId, { top: r.top, height: r.height });
+    });
+    snapshotRef.current = snap;
+
+    dragSrcId.current = id;
+    dragSrcBulb.current = item.bulbState;
+    ghostLeft.current = rect.left;
+    ghostHeight.current = rect.height;
+    logicalOrder.current = baseSorted.map((t) => t.id);
+    offsetsRef.current = new Map(baseSorted.map((t) => [t.id, 0]));
+    finalOrderRef.current = [...logicalOrder.current];
+
+    if (ghostRef.current) {
+      ghostRef.current.style.display = "block";
+      ghostRef.current.style.width = `${rect.width}px`;
+      ghostRef.current.style.opacity = "0";
+      ghostRef.current.style.transition = "none";
+      ghostRef.current.style.transform = `translate3d(${rect.left}px, ${rect.top}px, 0) scale(1)`;
+      requestAnimationFrame(() => {
+        if (!ghostRef.current) return;
+        ghostRef.current.style.opacity = "0.92";
+        ghostRef.current.style.transition =
+          "transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.1s ease";
+        ghostRef.current.style.transform =
+          `translate3d(${rect.left}px, ${startY - rect.height / 2}px, 0) scale(1.02)`;
+      });
+    }
+
+    setDraggingId(id);
+  };
+
+  const handleSortDragMove = (currentY: number, _currentX: number) => {
+    if (!dragSrcId.current) return;
+
+    if (rafId.current !== null) cancelAnimationFrame(rafId.current);
+    rafId.current = requestAnimationFrame(() => {
+      rafId.current = null;
+      ghostDropY.current = currentY - ghostHeight.current / 2;
+
+      // Ghost follows pointer
+      if (ghostRef.current) {
+        ghostRef.current.style.transition = "none";
+        ghostRef.current.style.transform =
+          `translate3d(${ghostLeft.current}px, ${currentY - ghostHeight.current / 2}px, 0) scale(1.02)`;
+      }
+
+      const srcId = dragSrcId.current!;
+      const srcBulb = dragSrcBulb.current;
+      const origIds = baseSorted.map((t) => t.id);
+      const GAP = 8;
+      const slotH = ghostHeight.current + GAP;
+
+      // Only consider same-priority items for insertion
+      const groupItems: { id: string; origIdx: number; snapTop: number; snapH: number }[] = [];
+      origIds.forEach((oid, idx) => {
+        if (oid === srcId) return;
+        const t = activeTodos.find((t) => t.id === oid);
+        if (!t || t.bulbState !== srcBulb) return;
+        const s = snapshotRef.current.get(oid);
+        if (!s) return;
+        groupItems.push({ id: oid, origIdx: idx, snapTop: s.top, snapH: s.height });
+      });
+      groupItems.sort((a, b) => a.snapTop - b.snapTop);
+
+      let insertIdx = groupItems.length;
+      for (let i = 0; i < groupItems.length; i++) {
+        const mid = groupItems[i].snapTop + groupItems[i].snapH * 0.5;
+        if (currentY < mid) { insertIdx = i; break; }
+      }
+
+      // Build new order: non-src-priority items stay in place, group items are reordered
+      const groupOrder = groupItems.map((o) => o.id);
+      groupOrder.splice(insertIdx, 0, srcId);
+      const newOrder: string[] = [];
+      let gi = 0;
+      for (const oid of origIds) {
+        const t = activeTodos.find((t) => t.id === oid);
+        if (t && t.bulbState === srcBulb) {
+          newOrder.push(groupOrder[gi++]);
+        } else {
+          newOrder.push(oid);
+        }
+      }
+
+      if (newOrder.join(",") === logicalOrder.current.join(",")) return;
+      logicalOrder.current = newOrder;
+      finalOrderRef.current = newOrder;
+
+      // Apply translateY offsets only to same-group items
+      const srcOrigIdx = origIds.indexOf(srcId);
+      groupItems.forEach(({ id, origIdx }) => {
+        const newIdx = newOrder.indexOf(id);
+        const srcNewIdx = newOrder.indexOf(srcId);
+        let dy = 0;
+        if (origIdx < srcOrigIdx && newIdx > srcNewIdx) {
+          dy = slotH;
+        } else if (origIdx > srcOrigIdx && newIdx < srcNewIdx) {
+          dy = -slotH;
+        }
+        applyOffset(id, dy);
+      });
+    });
+  };
+
+  const handleSortDragEnd = () => {
+    if (rafId.current !== null) { cancelAnimationFrame(rafId.current); rafId.current = null; }
+
+    const finalOrder = [...finalOrderRef.current];
+    const srcId = dragSrcId.current;
+
+    const FLY_MS = 500;
+
+    // Hard-clear translateY on all other cards immediately
+    cardRefs.current.forEach((el, id) => {
+      if (id === srcId) return;
+      el.style.transition = "none";
+      el.style.transform = "";
+    });
+    offsetsRef.current = new Map();
+
+    // Commit reorder
+    dragSrcId.current = null;
+    snapshotRef.current = new Map();
+    if (srcId && finalOrder.length) reorderTodos(finalOrder);
+
+    // Freeze ghost at current position
+    const ghost = ghostRef.current;
+    if (ghost) {
+      const m = ghost.style.transform.match(/translate3d\([^,]+,\s*([\d.-]+)px/);
+      const curY = m ? parseFloat(m[1]) : ghostDropY.current;
+      ghost.style.transition = "none";
+      ghost.style.transform = `translate3d(${ghostLeft.current}px, ${curY}px, 0) scale(1)`;
+    }
+
+    // Wait two rAFs for React to re-render (real card now at final DOM position)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const realEl = srcId ? cardRefs.current.get(srcId) : null;
+        if (!ghost || !realEl) {
+          if (ghost) ghost.style.display = "none";
+          setDraggingId(null);
+          return;
+        }
+
+        const targetRect = realEl.getBoundingClientRect();
+        const ghostM = ghost.style.transform.match(/translate3d\([^,]+,\s*([\d.-]+)px/);
+        const ghostCurY = ghostM ? parseFloat(ghostM[1]) : ghostDropY.current;
+        const realDy = ghostCurY - targetRect.top;
+
+        realEl.style.transition = "none";
+        realEl.style.transform = Math.abs(realDy) >= 1 ? `translateY(${realDy}px)` : "";
+        realEl.style.opacity = "0";
+
+        // Fly ghost to target
+        ghost.style.transition = `transform ${FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+        ghost.style.transform = `translate3d(${ghostLeft.current}px, ${targetRect.top}px, 0) scale(1)`;
+
+        // Fly real card in sync
+        if (Math.abs(realDy) >= 1) {
+          void realEl.offsetHeight;
+          realEl.style.transition = `transform ${FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+          realEl.style.transform = "translateY(0)";
+        }
+
+        // Crossfade
+        setTimeout(() => {
+          requestAnimationFrame(() => {
+            const XFADE = 80;
+            realEl.style.transition = "none";
+            realEl.style.transform = "";
+            realEl.style.opacity = "0";
+            void realEl.offsetHeight;
+            realEl.style.transition = `opacity ${XFADE}ms ease`;
+            realEl.style.opacity = "1";
+
+            ghost.style.transition = `opacity ${XFADE}ms ease`;
+            ghost.style.opacity = "0";
+
+            setTimeout(() => {
+              ghost.style.display = "none";
+              ghost.style.opacity = "";
+              ghost.style.transition = "";
+              realEl.style.transition = "";
+              realEl.style.opacity = "";
+              setDraggingId(null);
+            }, XFADE + 20);
+          });
+        }, FLY_MS);
+      });
+    });
+  };
 
   if (activeTodos.length === 0) {
     return (
@@ -345,16 +652,58 @@ function ActiveTodoList() {
     );
   }
 
-  const urgencyOrder: Record<string, number> = { red: 0, yellow: 1, green: 2 };
-  const sorted = [...activeTodos].sort((a, b) => urgencyOrder[a.bulbState] - urgencyOrder[b.bulbState]);
+  const draggingTodo = draggingId ? baseSorted.find((t) => t.id === draggingId) : null;
 
   return (
-    <div className="flex flex-col gap-2">
-      {sorted.map((todo) => (
-        <TodoCard key={todo.id} todo={todo} variant="active" />
+    <div className="flex flex-col gap-2" style={{ position: "relative" }}>
+      {baseSorted.map((todo) => (
+        <div
+          key={todo.id}
+          ref={(el) => setCardRef(todo.id, el)}
+          style={{
+            opacity: draggingId === todo.id ? 0 : 1,
+            transition: draggingId === todo.id ? "opacity 0.1s" : "opacity 0.2s",
+            willChange: draggingId ? "transform" : "auto",
+          }}
+        >
+          <TodoCard
+            todo={todo}
+            variant="active"
+            onSortDragStart={handleSortDragStart}
+            onSortDragMove={handleSortDragMove}
+            onSortDragEnd={handleSortDragEnd}
+          />
+        </div>
       ))}
+
+      <div
+        ref={ghostRef}
+        style={{
+          display: "none",
+          position: "fixed",
+          top: 0,
+          left: 0,
+          pointerEvents: "none",
+          zIndex: 9999,
+          filter: "none",
+          willChange: "transform, opacity",
+          transformOrigin: "center center",
+        }}
+      >
+        {draggingTodo && <TodoCard todo={draggingTodo} variant="active" />}
+      </div>
     </div>
   );
+}
+
+function getSortedTodos(activeTodos: TodoItem[]) {
+  const urgencyOrder: Record<string, number> = { red: 0, yellow: 1, green: 2 };
+  return [...activeTodos].sort((a, b) => {
+    const ua = urgencyOrder[a.bulbState];
+    const ub = urgencyOrder[b.bulbState];
+    if (ua !== ub) return ua - ub;
+    return (a.order ?? 0) - (b.order ?? 0);
+  });
 }
 
 function DiscardPoolView() {

@@ -23,7 +23,9 @@ export default function App() {
     if (view === "bubble") {
       invoke("resize_window", { width: 52, height: 52 });
     } else {
-      invoke("resize_window", { width: 310, height: 480 });
+      const w = useTodoStore.getState().panelWidth;
+      const h = useTodoStore.getState().panelHeight;
+      invoke("resize_window", { width: w, height: h });
     }
   }, [view]);
 
@@ -31,7 +33,7 @@ export default function App() {
   // Bubble needs non-transparent corners; panel can be transparent (corners are tiny)
   const containerBg = view === "bubble" ? (isDark ? "#0d1520" : "#e8ecf2") : "transparent";
   const borderRadius = view === "bubble" ? "50%" : "22px";
-  const overflow = view === "bubble" ? "hidden" : "visible";
+  const overflow = "hidden";
 
   return (
     <div ref={containerRef}

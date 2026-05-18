@@ -12,12 +12,15 @@ interface TodoStore {
   tab: PanelTab;
   showDiscardPool: boolean;
   theme: Theme;
+  panelWidth: number;
+  panelHeight: number;
 
   // Actions
   setView: (v: AppView) => void;
   setTab: (t: PanelTab) => void;
   setShowDiscardPool: (s: boolean) => void;
   toggleTheme: () => void;
+  setPanelSize: (w: number, h: number) => void;
 
   addTodo: (text: string) => void;
   editTodo: (id: string, text: string) => void;
@@ -26,6 +29,7 @@ interface TodoStore {
   restoreTodo: (id: string) => void;
   deleteTodo: (id: string) => void;
   cycleBulb: (id: string) => void;
+  reorderTodos: (orderedIds: string[]) => void;
 }
 
 const bulbCycle: Record<BulbState, BulbState> = {
@@ -42,11 +46,14 @@ export const useTodoStore = create<TodoStore>()(
       tab: "todo",
       showDiscardPool: false,
       theme: "dark",
+      panelWidth: 310,
+      panelHeight: 480,
 
       setView: (v) => set({ view: v }),
       setTab: (t) => set({ tab: t }),
       setShowDiscardPool: (s) => set({ showDiscardPool: s }),
       toggleTheme: () => set((s) => ({ theme: s.theme === "dark" ? "light" : "dark" })),
+      setPanelSize: (w, h) => set({ panelWidth: w, panelHeight: h }),
 
       addTodo: (text) =>
         set((s) => ({
@@ -56,6 +63,7 @@ export const useTodoStore = create<TodoStore>()(
               text: text.trim(),
               status: "active",
               bulbState: "green",
+              order: Date.now(),
               createdAt: Date.now(),
               completedAt: null,
             },
@@ -100,10 +108,39 @@ export const useTodoStore = create<TodoStore>()(
           todos: s.todos.filter((t) => t.id !== id),
         })),
 
+      reorderTodos: (orderedIds) =>
+        set((s) => {
+          const urgencyOrder: Record<string, number> = { red: 0, yellow: 1, green: 2 };
+          // Filter orderedIds to only active todos that exist in state
+          const validIds = orderedIds.filter((id) =>
+            s.todos.some((t) => t.id === id && t.status === "active")
+          );
+          // Group valid IDs by priority
+          const groups: Record<string, string[]> = { red: [], yellow: [], green: [] };
+          for (const id of validIds) {
+            const t = s.todos.find((t) => t.id === id);
+            if (t) groups[t.bulbState].push(id);
+          }
+          // Assign sequential order values within each priority group
+          const updated = new Map<string, number>();
+          let base = 0;
+          for (const state of ["red", "yellow", "green"]) {
+            groups[state].forEach((id, i) => updated.set(id, base + i));
+            base += Math.max(groups[state].length, 1) * 1000;
+          }
+          return {
+            todos: s.todos.map((t) =>
+              updated.has(t.id) ? { ...t, order: updated.get(t.id)! } : t
+            ),
+          };
+        }),
+
       cycleBulb: (id) =>
         set((s) => ({
           todos: s.todos.map((t) =>
-            t.id === id ? { ...t, bulbState: bulbCycle[t.bulbState] } : t
+            t.id === id
+              ? { ...t, bulbState: bulbCycle[t.bulbState], order: Date.now() }
+              : t
           ),
         })),
     }),
@@ -112,6 +149,8 @@ export const useTodoStore = create<TodoStore>()(
       partialize: (state) => ({
         todos: state.todos,
         theme: state.theme,
+        panelWidth: state.panelWidth,
+        panelHeight: state.panelHeight,
       }),
     }
   )
